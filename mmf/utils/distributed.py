@@ -1,5 +1,6 @@
 # Copyright (c) Facebook, Inc. and its affiliates.
 # Inspired from maskrcnn_benchmark, fairseq
+import contextlib
 import logging
 import os
 import pickle
@@ -124,11 +125,11 @@ def broadcast_tensor(tensor, src=0):
     with torch.no_grad():
         if is_xla():
             tensor = xm.all_to_all(
-                tensor.repeat([world_size, 1]),
+                tensor.repeat([world_size] + [1] * tensor.dim()),
                 split_dimension=0,
                 concat_dimension=0,
                 split_count=world_size,
-            )[0]
+            )[src]
         else:
             dist.broadcast(tensor, src=0)
 
@@ -166,13 +167,12 @@ def gather_tensor(tensor):
     with torch.no_grad():
         tensor_list = []
 
-        for _ in range(world_size):
-            tensor_list.append(torch.zeros_like(tensor))
-
         if is_xla():
             tensor_list = xm.all_gather(tensor)
             tensor_list = tensor_list.view(world_size, *tensor.size())
         else:
+            for _ in range(world_size):
+                tensor_list.append(torch.zeros_like(tensor))
             dist.all_gather(tensor_list, tensor)
             tensor_list = torch.stack(tensor_list, dim=0)
     return tensor_list
@@ -409,3 +409,12 @@ def suppress_output(is_master):
     # Log warnings only once
     warnings.warn = warn
     warnings.simplefilter("once", UserWarning)
+
+
+def open_if_master(path, mode):
+    from mmf.utils.file_io import PathManager
+
+    if is_master():
+        return PathManager.open(path, mode)
+    else:
+        return contextlib.nullcontext()
