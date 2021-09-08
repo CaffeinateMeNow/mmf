@@ -252,7 +252,7 @@ class BaseModel(pl.LightningModule):
         report = Report(batch, output).detach()
         self.val_meter.update_from_report(report, should_update_loss=False)
         report.metrics = self.metrics(report, report)
-        self.log_dict(report.metrics)
+        self.log_dict({"val/total_loss": output["loss"].item(), **report.metrics})
         return output
 
     def test_step(self, batch: SampleList, batch_idx: int, *args, **kwargs):
